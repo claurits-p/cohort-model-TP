@@ -80,4 +80,5 @@ TEAMPAY_SAAS_ANNUAL = 7_500        # $7,500/year SaaS (free Year 1)
 TEAMPAY_SAAS_MARGIN = 0.80         # 80% margin on Teampay SaaS
 TEAMPAY_PROCESSING_RATE = 0.023    # 2.3% per transaction
 TEAMPAY_PROCESSING_MARGIN = 0.27   # 27% margin on processing
-TEAMPAY_MONTHLY_VOLUME = 50_000    # $50k/month per Teampay deal (Y1 at 50% ramp)
+TEAMPAY_MONTHLY_VOLUME = 50_000    # $50k/month per Teampay deal (reference only)
+TEAMPAY_PROC_SAAS_RATIO = {1: 1.0, 2: 2.0, 3: 2.5}  # TP processing / Y2 TP SaaS total
