@@ -81,20 +81,21 @@ def _compute_teampay_year(
     retention: float,
     tp_optin: float,
     tp_usage: float,
-    ref_saas_total: float,
 ) -> tuple[float, float, float]:
     """Compute Teampay SaaS revenue, processing revenue, and cost for a year.
 
-    Processing revenue is derived as a ratio of the Y2 TP SaaS total
-    (ref_saas_total), using TEAMPAY_PROC_SAAS_RATIO per year.
-    Year 1: free SaaS. Years 2+: $7.5k SaaS.
+    All Teampay customers retain (no Teampay-specific drop-off),
+    only regular cohort churn applies via retention.
+    Year 1: free SaaS, 50% processing ramp. Years 2+: $7.5k SaaS, full volume.
 
     Returns (tp_saas_rev, tp_proc_rev, tp_cost).
     """
     active_tp = deals_won * tp_optin * tp_usage * retention
 
-    ratio = cfg.TEAMPAY_PROC_SAAS_RATIO.get(year, 2.5)
-    tp_proc_rev = ratio * ref_saas_total
+    annual_proc_vol = cfg.TEAMPAY_MONTHLY_VOLUME * 12
+    vol_factor = 0.50 if year == 1 else 1.0
+    growth = (1 + cfg.TEAMPAY_PROCESSING_GROWTH) ** (year - 1)
+    tp_proc_rev = active_tp * annual_proc_vol * cfg.TEAMPAY_PROCESSING_RATE * vol_factor * growth
     tp_proc_cost = tp_proc_rev * (1 - cfg.TEAMPAY_PROCESSING_MARGIN)
 
     if year == 1:
@@ -114,9 +115,6 @@ def _scale_yearly(
     tp_usage: float = 0.0,
 ) -> dict[int, CohortYearMetrics]:
     """Multiply per-deal yearly financials by number of deals, adjusted for churn."""
-    ret_y2 = _retention_factor(2, quarterly_churn)
-    ref_saas_total = deals * tp_optin * tp_usage * ret_y2 * cfg.TEAMPAY_SAAS_ANNUAL
-
     result = {}
     for y, yr in yearly.items():
         retention = _retention_factor(y, quarterly_churn)
@@ -125,7 +123,7 @@ def _scale_yearly(
         base_cost = yr.total_cost * active
 
         tp_saas, tp_proc, tp_cost = _compute_teampay_year(
-            deals, y, retention, tp_optin, tp_usage, ref_saas_total,
+            deals, y, retention, tp_optin, tp_usage,
         )
         tp_rev = tp_saas + tp_proc
 
