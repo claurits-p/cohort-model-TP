@@ -81,6 +81,7 @@ def _compute_teampay_year(
     retention: float,
     tp_optin: float,
     tp_usage: float,
+    proc_growth: float = 1.0,
 ) -> tuple[float, float, float]:
     """Compute Teampay SaaS revenue, processing revenue, and cost for a year.
 
@@ -94,8 +95,7 @@ def _compute_teampay_year(
 
     annual_proc_vol = cfg.TEAMPAY_MONTHLY_VOLUME * 12
     vol_factor = 0.50 if year == 1 else 1.0
-    growth = (1 + cfg.TEAMPAY_PROCESSING_GROWTH) ** (year - 1)
-    tp_proc_rev = active_tp * annual_proc_vol * cfg.TEAMPAY_PROCESSING_RATE * vol_factor * growth
+    tp_proc_rev = active_tp * annual_proc_vol * cfg.TEAMPAY_PROCESSING_RATE * vol_factor * proc_growth
     tp_proc_cost = tp_proc_rev * (1 - cfg.TEAMPAY_PROCESSING_MARGIN)
 
     if year == 1:
@@ -115,19 +115,36 @@ def _scale_yearly(
     tp_usage: float = 0.0,
 ) -> dict[int, CohortYearMetrics]:
     """Multiply per-deal yearly financials by number of deals, adjusted for churn."""
+    g = cfg.TEAMPAY_PROCESSING_GROWTH
+    ret_y2 = _retention_factor(2, quarterly_churn)
+    ret_y3 = _retention_factor(3, quarterly_churn)
+    tp_growth = {
+        1: 1.0,
+        2: 1 + g,
+        3: (ret_y2 / ret_y3) * (1 + g) if ret_y3 > 0 else 1 + g,
+    }
+    proc_churn_offset = {1: 1.0, 2: 1.0, 3: 1.20}
+
     result = {}
     for y, yr in yearly.items():
         retention = _retention_factor(y, quarterly_churn)
         active = deals * retention
+        pco = proc_churn_offset.get(y, 1.0)
         base_rev = yr.total_revenue * active
         base_cost = yr.total_cost * active
 
         tp_saas, tp_proc, tp_cost = _compute_teampay_year(
-            deals, y, retention, tp_optin, tp_usage,
+            deals, y, retention, tp_optin, tp_usage, tp_growth.get(y, 1.0),
         )
         tp_rev = tp_saas + tp_proc
 
-        rev = base_rev + tp_rev
+        cc_rev = yr.cc_revenue * active * pco
+        ach_rev = yr.ach_revenue * active * pco
+        bank_rev = yr.bank_network_revenue * active * pco
+        float_inc = yr.float_income * active * pco
+        proc_boost = (pco - 1.0) * (yr.cc_revenue + yr.ach_revenue + yr.bank_network_revenue + yr.float_income) * active
+
+        rev = base_rev + tp_rev + proc_boost
         cost = base_cost + tp_cost
         margin = rev - cost
         mpct = margin / rev if rev > 0 else 0
@@ -138,10 +155,10 @@ def _scale_yearly(
             deals=int(round(active)),
             saas_revenue=yr.saas_revenue * active,
             impl_fee_revenue=yr.impl_fee_revenue * active,
-            cc_revenue=yr.cc_revenue * active,
-            ach_revenue=yr.ach_revenue * active,
-            bank_revenue=yr.bank_network_revenue * active,
-            float_income=yr.float_income * active,
+            cc_revenue=cc_rev,
+            ach_revenue=ach_rev,
+            bank_revenue=bank_rev,
+            float_income=float_inc,
             teampay_saas_revenue=tp_saas,
             teampay_processing_revenue=tp_proc,
             teampay_cost=tp_cost,
